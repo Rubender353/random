@@ -1,2 +1,1 @@
-Example that uses an unsafe way to read memory in program to print items in a LIFO stack in order
-it then outputs them from old to new and then outputs it in LIFO stack order
+Example that uses an unsafe way to read memory in program to print items in a LIFO stack. But instead of keeping the items in another area to print from oldest to new, we read the private members of class from memory and print oldest to new. Finally it prints it in the stack LIFO order from newest item added to oldest
